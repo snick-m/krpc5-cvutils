@@ -13,15 +13,19 @@ def main():
         for i in range(1, 5):
             level = f"level_{i}"
             files = os.listdir(f"{input_path}/{item}/{level}")
-            images = zip(files[1:], [
+            files.remove("labels.json")
+            images = zip(files, [
                 cv2.imread(f"{input_path}/{item}/{level}/{image}")
-                for image in files[1:]
+                for image in files
+                if image.endswith(".png")
             ])
-            labels = files[0]
+            labels = "labels.json"
             with open(f"{input_path}/{item}/{level}/{labels}", "r") as f:
                 labels = json.load(f)
             
             label_data = labels["bounding_boxes"]
+            print(labels["item_name"])
+            print(labels["images_path"])
             for image in images:
                 image_label = label_data[image[0]]
                 img = image[1]
