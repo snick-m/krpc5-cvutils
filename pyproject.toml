@@ -11,6 +11,8 @@ opencv-python = "4.5.3.x"
 opencv-contrib-python = "4.5.3.x"
 matplotlib = "3.7.x"
 imutils = "^0.5.4"
+fiftyone = "^1.4.1"
+numpy = "==1.26.*"
 
 [tool.poetry.scripts]
 parseImg = "krpc_cv_py.main:main"
