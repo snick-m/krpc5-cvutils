@@ -10,6 +10,7 @@ At time of export, for each level, a labels.json file is also generated for each
 """
 import os
 import json
+from typing import List
 import cv2
 import numpy as np
 import imutils
@@ -31,11 +32,13 @@ class Level:
         self.overlapping = overlapping # Have items partially overlap with each other, if not True make sure they don't overlap
 
 
+# Define levels here
+# Level(min_items, max_items, scaling, rotation, overlapping)
 levels = [
     # Level(1, 1, False, False, False),
     # Level(1, 3, True, False, False),
-    Level(1, 5, True, True, False),
-    Level(1, 5, True, True, True),
+    Level(1, 4, True, True, False),
+    Level(3, 5, True, True, True),
 ]
 
 # item_name = "screwdriver"
@@ -47,7 +50,60 @@ image_dimensions = (150 * 2, 225 * 2)
 input_path = "item_inputs"
 output_path = "data_outputs"
 
-def getNonOverlappingBoundingBoxes(existing_bounding_boxes, width: int, height: int):
+def getBoundingBoxWithOverlap(bounding_boxes: List[List[int]], width: int, height: int, allowed_overlap: float):
+    """
+    Generate a random bounding box that overlaps with existing bounding boxes but only to certain degree.
+    
+    :param bounding_boxes: List of existing bounding boxes
+    :type bounding_boxes: List[List[int]]
+    :param width: Width of the new bounding box
+    :type width: int
+    :param height: Height of the new bounding box
+    :type height: int
+    :param allowed_overlap: Allowed overlap percentage with existing bounding boxes
+    :type allowed_overlap: float
+
+    :return: A new bounding box that overlaps with existing bounding boxes
+    :rtype: [int, int, int, int]
+    """
+    x1 = np.random.randint(0, image_dimensions[1] - width)
+    y1 = np.random.randint(0, image_dimensions[0] - height)
+    x2 = x1 + width
+    y2 = y1 + height
+
+    new_bounding_box = [x1, y1, x2, y2]
+
+    for bounding_box in bounding_boxes:
+        x1_overlap = max(bounding_box[0], new_bounding_box[0])
+        y1_overlap = max(bounding_box[1], new_bounding_box[1])
+        x2_overlap = min(bounding_box[2], new_bounding_box[2])
+        y2_overlap = min(bounding_box[3], new_bounding_box[3])
+
+        overlap_width = max(0, x2_overlap - x1_overlap)
+        overlap_height = max(0, y2_overlap - y1_overlap)
+
+        overlap_area = overlap_width * overlap_height
+        total_area = width * height
+
+        if overlap_area / total_area > allowed_overlap:
+            return getBoundingBoxWithOverlap(bounding_boxes, width, height, allowed_overlap)
+
+    return new_bounding_box
+
+def getNonOverlappingBoundingBoxes(existing_bounding_boxes: List[List[int]], width: int, height: int):
+    """
+    Generate a random bounding box that does not overlap with existing bounding boxes.
+    If it does, recursively call the function until a non-overlapping bounding box is found.
+    
+    :param existing_bounding_boxes: List of existing bounding boxes
+    :type existing_bounding_boxes: List[List[int]]
+    :param width: Width of the new bounding box
+    :type width: int
+    :param height: Height of the new bounding box
+    :type height: int
+    :return: A new bounding box that does not overlap with existing bounding boxes
+    :rtype: [int, int, int, int]
+    """
     x1 = np.random.randint(0, image_dimensions[1] - width)
     y1 = np.random.randint(0, image_dimensions[0] - height)
     x2 = x1 + width
@@ -74,7 +130,7 @@ def rotate_image(img, angle, isAlpha=False):
     M[:,-1] += (size_new - size_reverse) / 2.
     return cv2.warpAffine(img, M, tuple(size_new.astype(int)), borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255) if not isAlpha else 0)
 
-def main(item_name: str, image_per_level: int):
+def main(item_name: str, image_per_level: int, allowed_overlap: float = 0.5):
     item_name = item_name.split(".")[0]
     item = cv2.imread(f"{input_path}/{item_name}.png", cv2.IMREAD_UNCHANGED)
     
@@ -141,6 +197,11 @@ def main(item_name: str, image_per_level: int):
                         x1, y1, x2, y2 = getNonOverlappingBoundingBoxes(bounding_boxes, item_copy.shape[1], item_copy.shape[0])
                     except RecursionError:
                         break
+                else:
+                    try:
+                        x1, y1, x2, y2 = getBoundingBoxWithOverlap(bounding_boxes, item_copy.shape[1], item_copy.shape[0], allowed_overlap)
+                    except RecursionError:
+                        break
 
                 # Place item on image with alpha by converting alpha channel to a 3 channel image
                 alpha = item_alpha_copy.astype(float) / 255
@@ -183,16 +244,18 @@ def main(item_name: str, image_per_level: int):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate training data for KIBO RPC 5th")
-    parser.add_argument("--item_name", type=str, default="_all", help="Name of the item to generate data for")
-    parser.add_argument("--per_level", type=int, default=5, help="Number of images per level")
+    parser.add_argument("-n", "--item_name", type=str, default="_all", help="Name of the item to generate data for")
+    parser.add_argument("-c", "--per_level", type=int, default=5, help="Number of images per level")
+    parser.add_argument("-o", "--allowed_overlap", type=float, default=0.5, help="Allowed overlap percentage with existing bounding boxes")
 
     item_name = parser.parse_args().item_name
     image_per_level = parser.parse_args().per_level
+    allowed_overlap = parser.parse_args().allowed_overlap
 
     if item_name == "_all":
         items = os.listdir(input_path)
         for item in items:
             print("Generating data for", item)
-            main(item, image_per_level)
+            main(item, image_per_level, allowed_overlap)
     else:
-        main(item_name, image_per_level)
+        main(item_name, image_per_level, allowed_overlap)
