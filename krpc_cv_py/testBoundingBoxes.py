@@ -12,7 +12,10 @@ def main():
     for item in generated_items:
         for i in range(1, 5):
             level = f"level_{i}"
-            files = os.listdir(f"{input_path}/{item}/{level}")
+            try:
+                files = os.listdir(f"{input_path}/{item}/{level}")
+            except FileNotFoundError:
+                continue
             files.remove("labels.json")
             images = zip(files, [
                 cv2.imread(f"{input_path}/{item}/{level}/{image}")
