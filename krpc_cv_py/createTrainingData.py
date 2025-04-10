@@ -43,7 +43,7 @@ levels = [
 ]
 
 # item_name = "screwdriver"
-item_width = 60 * 2
+item_width = 65 * 2
 item_height = 0
 image_dimensions = (150 * 2, 225 * 2)
 # image_per_level = 5
@@ -184,7 +184,7 @@ def main(item_name: str, image_per_level: int, allowed_overlap: float = 0.5):
                 scale = 1
 
                 if level.scaling:
-                    scale = np.random.uniform(0.65, 1.0)
+                    scale = np.random.uniform(0.60, 1.0)
                     item_copy = cv2.resize(item_copy, (int(item_width * scale), int(item_height * scale)), interpolation=cv2.INTER_AREA)
 
                 if level.rotation: # Rotate between 0 and 360 degrees at stops of 45 degrees
@@ -198,20 +198,18 @@ def main(item_name: str, image_per_level: int, allowed_overlap: float = 0.5):
                 x2 = x1 + item_copy.shape[1]
                 y2 = y1 + item_copy.shape[0]
 
-                if not level.overlapping:
-                    try:
-                        x1, y1, x2, y2 = getNonOverlappingBoundingBoxes(bounding_boxes, item_copy.shape[1], item_copy.shape[0])
-                    except RecursionError:
-                        break
-                else:
-                    try:
-                        x1, y1, x2, y2 = getBoundingBoxWithOverlap(bounding_boxes, item_copy.shape[1], item_copy.shape[0], allowed_overlap)
-                    except RecursionError:
-                        break
+                try:
+                    if not level.overlapping:
+                            x1, y1, x2, y2 = getNonOverlappingBoundingBoxes(bounding_boxes, item_copy.shape[1], item_copy.shape[0])
+                    else:
+                            x1, y1, x2, y2 = getBoundingBoxWithOverlap(bounding_boxes, item_copy.shape[1], item_copy.shape[0], allowed_overlap)
+                except RecursionError:
+                    break
 
                 # Place item on image with alpha by converting alpha channel to a 3 channel image
-                alpha = cv2.merge((item_copy[:,:,3] / 255,) * 4).astype(np.uint8) # Invert alpha to black out the item
-                item_copy = cv2.multiply(alpha, item_copy) # Black out pixels outside the item on item image
+                alpha = cv2.merge((item_copy[:,:,3] / 255,) * 4) # Invert alpha to black out the item
+                item_copy = cv2.multiply(alpha, item_copy.astype(float)).astype(np.uint8) # Black out pixels outside the item on item image
+
                 
                 image_sub = cv2.multiply(1.0 - alpha, image[y1:y2, x1:x2].astype(float)).astype(np.uint8) # Black out pixels inside the item on main image
                 image[y1:y2, x1:x2] = cv2.add(image_sub, item_copy) # (Black Outside + Item) + (Black Inside + Main Image)
