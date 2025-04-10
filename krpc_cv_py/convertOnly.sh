@@ -9,27 +9,10 @@ fiftyone convert --input-dir ./coco_data/test_data \
   --input-type fiftyone.types.COCODetectionDataset \
   --input-kwargs data_path=images \
   --output-dir ./coco_data/xml_data/test_data \
-  --output-type fiftyone.types.VOCDetectionDataset	
+  --output-type fiftyone.types.VOCDetectionDataset
 
 fiftyone convert --input-dir ./coco_data/val_data \
   --input-type fiftyone.types.COCODetectionDataset \
   --input-kwargs data_path=images \
   --output-dir ./coco_data/xml_data/val_data \
   --output-type fiftyone.types.VOCDetectionDataset
-
-cd coco_data/xml_data
-
-cd train_data/data && magick mogrify -format jpg *.png && rm -rf *.png && cd ../../
-cd val_data/data && magick mogrify -format jpg *.png && rm -rf *.png && cd ../../
-cd test_data/data && magick mogrify -format jpg *.png && rm -rf *.png && cd ../../
-
-for dir in test_data/labels train_data/labels val_data/labels; do
-    echo "Processing $dir..."
-
-    # Run sed commands
-    sed -i 's/.png/.jpg/' "$dir"/*.xml
-    sed -i 's#</object>#    <difficult>Unspecified</difficult>\
-        <truncated>Unspecified</truncated>\
-        <pose>Unspecified</pose>\
-    </object>#' "$dir"/*.xml
-done

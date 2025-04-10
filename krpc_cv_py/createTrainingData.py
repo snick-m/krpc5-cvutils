@@ -10,6 +10,7 @@ At time of export, for each level, a labels.json file is also generated for each
 """
 import os
 import json
+import re
 from typing import List
 import cv2
 import numpy as np
@@ -122,24 +123,41 @@ def getNonOverlappingBoundingBoxes(existing_bounding_boxes: List[List[int]], wid
 
     return new_bounding_box
 
-def rotate_image(img, angle, isAlpha=False):
+def rotate_image(img, angle):
     size_reverse = np.array(img.shape[1::-1]) # swap x with y
     M = cv2.getRotationMatrix2D(tuple(size_reverse / 2.), angle, 1.)
     MM = np.absolute(M[:,:2])
     size_new = MM @ size_reverse
     M[:,-1] += (size_new - size_reverse) / 2.
-    return cv2.warpAffine(img, M, tuple(size_new.astype(int)), borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255) if not isAlpha else 0)
+    rotated_image = cv2.warpAffine(img, M, tuple(size_new.astype(int)), borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+
+    return rotated_image
+
+def trim_image(image):    
+    # Find the non-transparent pixels (where alpha > 0)
+    if image.shape[2] == 4:  # Ensure we have an alpha channel
+        alpha_channel = image[:, :, 3]
+        # Find coordinates of non-transparent pixels
+        non_transparent_coords = np.column_stack(np.where(alpha_channel > 0))
+        
+        if len(non_transparent_coords) > 0:
+            # Get the bounding box of non-transparent pixels
+            min_row, min_col = np.min(non_transparent_coords, axis=0)
+            max_row, max_col = np.max(non_transparent_coords, axis=0)
+            
+            # Crop the image to the bounding box
+            cropped_image = image[min_row:max_row+1, min_col:max_col+1]
+            return cropped_image
+    
+    return image # If no non-transparent pixels, return the original image
 
 def main(item_name: str, image_per_level: int, allowed_overlap: float = 0.5):
     item_name = item_name.split(".")[0]
     item = cv2.imread(f"{input_path}/{item_name}.png", cv2.IMREAD_UNCHANGED)
     
-    item_alpha = item[:,:,3]
-    item = item[:,:,:3]
-
     global item_height, item_width
 
-    item_width = 60 * 2
+    item_width = 65 * 2
     item_height = 0
 
     if item.shape[0] > item.shape[1]:
@@ -148,14 +166,7 @@ def main(item_name: str, image_per_level: int, allowed_overlap: float = 0.5):
     else:
         item_height = int(item_width * item.shape[0] / item.shape[1])
     
-    item = cv2.resize(item, (item_width, item_height))
-    item_alpha = cv2.resize(item_alpha, (item_width, item_height))
-    
-    item_bg = np.ones(item.shape, np.uint8) * 255
-    item_bg = cv2.bitwise_or(item_bg, item_bg, mask=cv2.bitwise_not(item_alpha))
-
-    item = cv2.bitwise_or(item_bg, item)
-
+    item = cv2.resize(item, (item_width, item_height), interpolation=cv2.INTER_AREA)
     for i in range(len(levels)):
         print("Creating Level", i + 1, "Images")
         level = levels[i]
@@ -165,27 +176,22 @@ def main(item_name: str, image_per_level: int, allowed_overlap: float = 0.5):
             num_items = np.random.randint(level.min_items, level.max_items + 1)
             bounding_boxes = []
 
-            image = np.ones(image_dimensions + (3,), np.uint8) * 255
+            image = np.ones(image_dimensions + (4,), np.uint8) * 255
 
             for _ in range(num_items):
                 item_copy = item.copy()
-                item_alpha_copy = item_alpha.copy()
-                item_copy = cv2.bitwise_and(item_copy, item_copy, mask=item_alpha_copy)
+
                 scale = 1
 
                 if level.scaling:
-                    scale = np.random.uniform(0.7, 1.1)
-                    item_copy = cv2.resize(item_copy, (int(item_width * scale), int(item_height * scale)))
-                    item_alpha_copy = cv2.resize(item_alpha_copy, (int(item_width * scale), int(item_height * scale)))
+                    scale = np.random.uniform(0.65, 1.0)
+                    item_copy = cv2.resize(item_copy, (int(item_width * scale), int(item_height * scale)), interpolation=cv2.INTER_AREA)
 
                 if level.rotation: # Rotate between 0 and 360 degrees at stops of 45 degrees
                     angle = np.random.randint(0, 8) * 45
-
-                    size = item_copy.shape[1], item_copy.shape[0]
-                    # item_copy = cv2.resize(imutils.rotate_bound(item_copy, angle), size)
-                    # item_alpha_copy = cv2.resize(imutils.rotate_bound(item_alpha_copy, angle), size)
                     item_copy = rotate_image(item_copy, angle)
-                    item_alpha_copy = rotate_image(item_alpha_copy, angle, True)
+                
+                item_copy = trim_image(item_copy) # Trim the image to remove transparent pixels
                     
                 x1 = np.random.randint(0, image_dimensions[1] - item_copy.shape[1])
                 y1 = np.random.randint(0, image_dimensions[0] - item_copy.shape[0])
@@ -204,18 +210,13 @@ def main(item_name: str, image_per_level: int, allowed_overlap: float = 0.5):
                         break
 
                 # Place item on image with alpha by converting alpha channel to a 3 channel image
-                alpha = item_alpha_copy.astype(float) / 255
-                alpha = cv2.merge((alpha, alpha, alpha))
-
-                item_copy = cv2.multiply(alpha, item_copy.astype(float)).astype(np.uint8) # Black out pixels outside the item on item image
+                alpha = cv2.merge((item_copy[:,:,3] / 255,) * 4).astype(np.uint8) # Invert alpha to black out the item
+                item_copy = cv2.multiply(alpha, item_copy) # Black out pixels outside the item on item image
+                
                 image_sub = cv2.multiply(1.0 - alpha, image[y1:y2, x1:x2].astype(float)).astype(np.uint8) # Black out pixels inside the item on main image
                 image[y1:y2, x1:x2] = cv2.add(image_sub, item_copy) # (Black Outside + Item) + (Black Inside + Main Image)
 
                 bounding_boxes.append([x1, y1, x2, y2])
-
-            # cv2.imshow(f"Level {i + 1}", image)
-            # cv2.waitKey(0)
-            # cv2.destroyAllWindows()
 
             image_name = f"{item_name}_level_{i + 1}_{image_idx + 1}.png"
             image_path = f"{output_path}/{item_name}/level_{i + 1}/{image_name}"
